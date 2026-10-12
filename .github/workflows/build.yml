@@ -72,19 +72,10 @@ jobs:
           fi
           make O=${{github.workspace}}/linux/build ${{matrix.defconfig}}
           scripts/config --file ${{github.workspace}}/linux/build/.config --set-val CONFIG_WERROR y
-          make O=${{github.workspace}}/linux/build -j ${{env.NUM_JOBS}} $IMAGE modules dtbs
-          mkdir -p ${{github.workspace}}/linux/install/boot/overlays
-          make O=${{github.workspace}}/linux/build INSTALL_MOD_PATH=${{github.workspace}}/linux/install modules_install
-          cp ${{github.workspace}}/linux/build/arch/${ARCH}/boot/dts/${DTS_SUBDIR}/*.dtb ${{github.workspace}}/linux/install/boot/
-          cp ${{github.workspace}}/linux/build/arch/${ARCH}/boot/dts/overlays/*.dtb* ${{github.workspace}}/linux/install/boot/overlays/
-          cp ${{github.workspace}}/linux/arch/${ARCH}/boot/dts/overlays/README ${{github.workspace}}/linux/install/boot/overlays/
-          cp ${{github.workspace}}/linux/build/arch/${ARCH}/boot/$IMAGE ${{github.workspace}}/linux/install/boot/${{matrix.kernel}}.img
-
-      - name: Tar build
-        run: tar -cvf ${{matrix.name}}_build.tar -C ${{github.workspace}}/linux/install .
+          make O=${{github.workspace}}/linux/build -j ${{env.NUM_JOBS}} bindeb-pkg
 
       - name: Upload results
         uses: actions/upload-artifact@v7
         with:
-          name: ${{matrix.name}}_build
-          path: ${{matrix.name}}_build.tar
+          name: ${{matrix.name}}_deb_packages
+          path: ${{github.workspace}}/linux/*.deb
