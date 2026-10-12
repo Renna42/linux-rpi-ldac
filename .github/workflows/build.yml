@@ -51,7 +51,7 @@ jobs:
         run: |
           cd ${{github.workspace}}/linux
           if compgen -G "${{github.workspace}}/patches/*.patch" > /dev/null; then
-            for p in ${{ github.workspace }}/patches/*.patch; do
+            for p in ${{github.workspace}}/patches/*.patch; do
               echo "Applying: $p"
               patch -p1 < "$p" || exit 1
             done
@@ -59,6 +59,7 @@ jobs:
 
       - name: Build kernel ${{matrix.name}}
         run: |
+          cd ${{github.workspace}}/linux
           mkdir ${{github.workspace}}/linux/build
           export ARCH=${{matrix.arch}}
           if [[ "$ARCH" == "arm64" ]]; then
