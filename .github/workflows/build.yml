@@ -19,13 +19,15 @@ jobs:
             kernel: kernel8
 
     steps:
-      - name: Install armhf crossbuild toolchain
-        if: matrix.arch == 'arm'
+      - name: Install toolchain
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabihf
+          if [ "${{ matrix.arch }}" = "arm" ]; then
+            sudo apt-get install -y gcc-arm-linux-gnueabihf
+          fi
+          sudo apt-get install -y build-essential debhelper libdw-dev libelf-dev
         timeout-minutes: 15
 
       - name: Checkout local repository
