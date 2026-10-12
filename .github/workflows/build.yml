@@ -1,0 +1,89 @@
+name: Build and Release Custom RPi Kernel
+
+on:
+  workflow_dispatch:
+
+env:
+  NUM_JOBS: 6
+  VERSION_CODENAME: trixie
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        include:
+          - name: bcm2711
+            arch: arm64
+            defconfig: bcm2711_defconfig
+            kernel: kernel8
+
+    steps:
+      - name: Install armhf crossbuild toolchain
+        if: matrix.arch == 'arm'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf
+        timeout-minutes: 15
+
+      - name: Checkout local repository
+        uses: actions/checkout@v7
+
+      - name: Add Raspberry Pi APT repository
+        run: |
+          curl -fsSL https://archive.raspberrypi.com/debian/raspberrypi.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/raspberrypi-archive-keyring.gpg
+          echo "deb-src [signed-by=/usr/share/keyrings/raspberrypi-archive-keyring.gpg] http://archive.raspberrypi.com/debian/ ${{env.VERSION_CODENAME}} main" | sudo tee /etc/apt/sources.list.d/raspi-src.list
+          sudo apt-get update
+
+      - name: Fetch kernel source via APT
+        run: |
+          mkdir ${{github.workspace}}/linux-src
+          cd ${{github.workspace}}/linux-src        
+          RPI_KERNEL_VER=$(apt-cache showsrc linux | grep -E '^Version:.*rpt' | head -n 1 | awk '{print $2}')
+          echo "Found Raspberry Pi Kernel Version: $RPI_KERNEL_VER"
+          apt-get source linux=$RPI_KERNEL_VER
+          SRC_DIR=$(find . -maxdepth 1 -type d -name "linux-*" | head -n 1)
+          mv $SRC_DIR ${{github.workspace}}/linux
+
+      - name: Apply custom patches
+        run: |
+          cd ${{github.workspace}}/linux
+          if compgen -G "${{github.workspace}}/patches/*.patch" > /dev/null; then
+            for p in ${{ github.workspace }}/patches/*.patch; do
+              echo "Applying: $p"
+              patch -p1 < "$p" || exit 1
+            done
+          fi
+
+      - name: Build kernel ${{matrix.name}}
+        run: |
+          mkdir ${{github.workspace}}/linux/build
+          export ARCH=${{matrix.arch}}
+          if [[ "$ARCH" == "arm64" ]]; then
+            export DTS_SUBDIR=broadcom
+            export IMAGE=Image.gz
+          else
+            export CROSS_COMPILE=arm-linux-gnueabihf-
+            export DTS_SUBDIR=broadcom
+            export IMAGE=zImage
+          fi
+          make O=${{github.workspace}}/linux/build ${{matrix.defconfig}}
+          scripts/config --file ${{github.workspace}}/linux/build/.config --set-val CONFIG_WERROR y
+          make O=${{github.workspace}}/linux/build -j ${{env.NUM_JOBS}} $IMAGE modules dtbs
+          mkdir -p ${{github.workspace}}/linux/install/boot/overlays
+          make O=${{github.workspace}}/linux/build INSTALL_MOD_PATH=${{github.workspace}}/linux/install modules_install
+          cp ${{github.workspace}}/linux/build/arch/${ARCH}/boot/dts/${DTS_SUBDIR}/*.dtb ${{github.workspace}}/linux/install/boot/
+          cp ${{github.workspace}}/linux/build/arch/${ARCH}/boot/dts/overlays/*.dtb* ${{github.workspace}}/linux/install/boot/overlays/
+          cp ${{github.workspace}}/linux/arch/${ARCH}/boot/dts/overlays/README ${{github.workspace}}/linux/install/boot/overlays/
+          cp ${{github.workspace}}/linux/build/arch/${ARCH}/boot/$IMAGE ${{github.workspace}}/linux/install/boot/${{matrix.kernel}}.img
+
+      - name: Tar build
+        run: tar -cvf ${{matrix.name}}_build.tar -C ${{github.workspace}}/linux/install .
+
+      - name: Upload results
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{matrix.name}}_build
+          path: ${{matrix.name}}_build.tar
